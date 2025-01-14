@@ -1,0 +1,150 @@
+#include <ESP32Servo.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_I2CDevice.h>
+
+#define DHTTYPE DHT11
+
+// Define pins
+#define SERVO_PIN 5        // Servo motor pin
+#define TEMP_SENSOR_PIN 32 // Temperature sensor pin (VN)
+#define LDR_PIN 34         // LDR sensor pin
+#define IR_SENSOR_PIN 36   // IR sensor pin (replaces PIR)
+#define GAS_SENSOR_PIN 35  // Gas sensor pin
+
+#define LDR_BULB_PIN 19    // Bulb for LDR
+#define IR_BULB_PIN 13     // Bulb for IR sensor
+#define GAS_BULB_PIN 18    // Bulb for Gas detection
+
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
+
+DHT dht(TEMP_SENSOR_PIN, DHTTYPE);
+Servo servoMotor;
+
+// Thresholds
+const float TEMP_HIGH_THRESHOLD = 26; // Temperature to turn servo clockwise
+const float TEMP_LOW_THRESHOLD = 25;  // Temperature to turn servo counter-clockwise
+const int LDR_THRESHOLD = 3500;       // Adjust based on your lighting conditions
+const int GAS_THRESHOLD = 1000;       // Adjust based on your sensor output
+
+// Debouncing variables for IR sensor
+unsigned long lastDetectionTime = 0;  // Variable to store the last time IR signal was detected
+unsigned long debounceDelay = 500;     // Debounce delay (in milliseconds)
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+
+  if (!display.begin(SSD1306_PAGEADDR, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    while (true);
+  }
+  display.clearDisplay();
+
+  // Attach the servo motor
+  servoMotor.attach(SERVO_PIN);
+  servoMotor.write(90); // Initial neutral position
+
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 10);
+  display.print("Smart Home");
+  display.setCursor(0, 30);
+  display.print("Automation System");
+  display.display();
+  
+  delay(500);
+
+  // Set bulb pins as outputs
+  pinMode(LDR_BULB_PIN, OUTPUT);
+  pinMode(IR_BULB_PIN, OUTPUT);   // IR sensor bulb
+  pinMode(GAS_BULB_PIN, OUTPUT);
+
+  // Set sensor pins as inputs
+  pinMode(LDR_PIN, INPUT);
+  pinMode(IR_SENSOR_PIN, INPUT);  // IR sensor input
+  pinMode(GAS_SENSOR_PIN, INPUT);
+
+  Serial.println("System Initialized!");
+
+}
+
+void loop() {
+  // Read temperature sensor
+  float temperature = dht.readTemperature();
+  if (isnan(temperature)) {
+    Serial.println("Failed to read temperature sensor");
+  } 
+  else {
+    Serial.print("Temperature: ");
+    Serial.println(temperature);
+
+    // Control servo based on temperature
+    if (temperature > TEMP_HIGH_THRESHOLD) {
+      
+      servoMotor.write(135); // Turn 45 degrees clockwise
+
+    } else if (temperature < TEMP_LOW_THRESHOLD) {
+      
+      servoMotor.write(45); // Turn 45 degrees counter-clockwise
+    }
+    
+  }
+
+  // Read LDR sensor
+  int ldrValue = analogRead(LDR_PIN);
+  Serial.print("LDR Value: ");
+  Serial.println(ldrValue);
+  if (ldrValue > LDR_THRESHOLD) { // Dark condition
+    digitalWrite(LDR_BULB_PIN, HIGH);
+  }
+  else if (ldrValue < LDR_THRESHOLD){
+    digitalWrite(LDR_BULB_PIN, LOW);
+  }
+  
+  // Read IR sensor with debouncing
+  int irValue = digitalRead(IR_SENSOR_PIN);
+  Serial.print("IR Value: ");
+  Serial.println(irValue);
+
+  if (irValue == HIGH && (millis() - lastDetectionTime) > debounceDelay) {
+    lastDetectionTime = millis(); // Update the last detection time
+    digitalWrite(IR_BULB_PIN, LOW); // Turn the bulb on when IR sensor detects signal
+    Serial.println("IR signal detected!");
+  } else {
+    digitalWrite(IR_BULB_PIN, HIGH); // Turn the bulb off when no IR signal
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 10);
+    display.print("INTRUDER ALERT");
+    display.display();
+  }
+  
+  delay(2000);
+
+  // Read gas sensor
+  int gasValue = analogRead(GAS_SENSOR_PIN);
+  Serial.print("Gas Value: ");
+  Serial.println(gasValue);
+  if (gasValue > GAS_THRESHOLD) { // Gas detected
+    digitalWrite(GAS_BULB_PIN, HIGH);
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 10);
+    display.print("GAS LEAK ALERT !");
+   
+    display.display();
+  } 
+  else {
+    digitalWrite(GAS_BULB_PIN, LOW);
+  }
+
+  // Delay to prevent spamming
+ delay(1000);
+   display.clearDisplay();
+   display.display();
+}
